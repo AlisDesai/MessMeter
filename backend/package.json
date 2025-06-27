@@ -8,7 +8,12 @@
     "dev": "nodemon server.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
-  "keywords": ["messmeter", "food", "rating", "backend"],
+  "keywords": [
+    "messmeter",
+    "food",
+    "rating",
+    "backend"
+  ],
   "author": "Your Name",
   "license": "MIT",
   "dependencies": {
