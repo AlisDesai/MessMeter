@@ -1,4 +1,3 @@
-// backend/server.js
 const express = require("express");
 const mongoose = require("mongoose");
 const cors = require("cors");
@@ -8,7 +7,7 @@ const path = require("path");
 require("dotenv").config();
 
 // Import database connection
-const connectDB = require("./config/database");
+const { connectDB } = require("./config/db");
 
 // Import middleware
 const { errorHandler, notFound } = require("./middleware/errorHandler");
@@ -20,9 +19,13 @@ const menuRoutes = require("./routes/menuRoutes");
 const ratingRoutes = require("./routes/ratingRoutes");
 const uploadRoutes = require("./routes/uploadRoutes");
 const analyticsRoutes = require("./routes/analyticsRoutes");
+const facilityRoutes = require("./routes/facilityRoutes"); // ← UNCOMMENTED
 
 const app = express();
 const PORT = process.env.PORT || 5000;
+
+// Declare server variable
+let server;
 
 // Security Middleware
 app.use(
@@ -64,8 +67,6 @@ app.use(
     exposedHeaders: ["set-cookie"],
   })
 );
-
-app.use("/api/facilities", require("./routes/facilityRoutes"));
 
 // Cookie parser middleware
 app.use(cookieParser());
@@ -121,6 +122,7 @@ app.get("/api", (req, res) => {
       ratings: "/api/ratings",
       upload: "/api/upload",
       analytics: "/api/analytics",
+      facilities: "/api/facilities",
     },
     documentation: "/api/docs",
   });
@@ -132,6 +134,7 @@ app.use("/api/menu", menuRoutes);
 app.use("/api/ratings", ratingRoutes);
 app.use("/api/upload", uploadRoutes);
 app.use("/api/analytics", analyticsRoutes);
+app.use("/api/facilities", facilityRoutes); // ← UNCOMMENTED
 
 // API Documentation placeholder
 app.get("/api/docs", (req, res) => {
@@ -185,6 +188,13 @@ app.get("/api/docs", (req, res) => {
         engagement: "GET /analytics/engagement (Admin)",
         export: "GET /analytics/export (Admin)",
       },
+      facilities: {
+        getAllFacilities: "GET /facilities",
+        getFacilityMesses: "GET /facilities/messes",
+        createFacility: "POST /facilities (Admin)",
+        addMess: "POST /facilities/add-mess (Admin)",
+        updateMess: "PUT /facilities/mess (Admin)",
+      },
     },
   });
 });
@@ -199,7 +209,7 @@ if (process.env.NODE_ENV === "production") {
 }
 
 // 404 Handler for API routes
-app.use("/api/*", notFound);
+app.use(/^\/api\/.*/, notFound);
 
 // Global Error Handler
 app.use(errorHandler);
@@ -222,15 +232,17 @@ const gracefulShutdown = (signal) => {
   console.log(`\n👋 ${signal} received, shutting down gracefully...`);
 
   // Close server
-  server.close(() => {
-    console.log("🔴 HTTP server closed");
+  if (server) {
+    server.close(() => {
+      console.log("🔴 HTTP server closed");
 
-    // Close database connection
-    mongoose.connection.close(false, () => {
-      console.log("📦 Database connection closed");
-      process.exit(0);
+      // Close database connection
+      mongoose.connection.close(false, () => {
+        console.log("📦 Database connection closed");
+        process.exit(0);
+      });
     });
-  });
+  }
 
   // Force close after 10 seconds
   setTimeout(() => {
@@ -245,15 +257,20 @@ process.on("SIGINT", () => gracefulShutdown("SIGINT"));
 // Handle uncaught exceptions
 process.on("uncaughtException", (err) => {
   console.error("💥 Uncaught Exception:", err);
+  console.error("Shutting down server due to uncaught exception");
   process.exit(1);
 });
 
 // Handle unhandled promise rejections
 process.on("unhandledRejection", (err) => {
   console.error("💥 Unhandled Rejection:", err);
-  server.close(() => {
+  if (server) {
+    server.close(() => {
+      process.exit(1);
+    });
+  } else {
     process.exit(1);
-  });
+  }
 });
 
 // Start Server
@@ -263,21 +280,18 @@ const startServer = async () => {
     await connectDB();
 
     // Start server
-    const server = app.listen(PORT, () => {
+    server = app.listen(PORT, () => {
       console.log(`🚀 Server running on port ${PORT}`);
       console.log(`🌍 Environment: ${process.env.NODE_ENV}`);
       console.log(`📡 Health check: http://localhost:${PORT}/api/health`);
       console.log(`📚 API docs: http://localhost:${PORT}/api/docs`);
-      console.log(`⏰ Started at: ${new Date().toISOString()}`);
+      console.log("\nHello, Future Billionare!");
     });
 
     // Set server timeout
     server.timeout = 30000; // 30 seconds
     server.keepAliveTimeout = 61000; // 61 seconds
     server.headersTimeout = 62000; // 62 seconds
-
-    // Make server available for graceful shutdown
-    global.server = server;
   } catch (error) {
     console.error("❌ Server startup failed:", error);
     process.exit(1);

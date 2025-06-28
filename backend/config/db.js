@@ -3,51 +3,16 @@ const mongoose = require("mongoose");
 
 const connectDB = async () => {
   try {
-    // Determine which MongoDB URI to use based on environment
     const mongoURI =
       process.env.NODE_ENV === "production"
         ? process.env.MONGODB_URI_PROD
         : process.env.MONGODB_URI;
 
-    if (!mongoURI) {
-      throw new Error("MongoDB URI is not defined in environment variables");
-    }
-
-    // Mongoose connection options
-    const options = {
-      // Remove deprecated options that are now defaults in Mongoose 6+
-      maxPoolSize: 10, // Maintain up to 10 socket connections
-      serverSelectionTimeoutMS: 5000, // Keep trying to send operations for 5 seconds
-      socketTimeoutMS: 45000, // Close sockets after 45 seconds of inactivity
-      family: 4, // Use IPv4, skip trying IPv6
-      bufferMaxEntries: 0, // Disable mongoose buffering
-      bufferCommands: false, // Disable mongoose buffering
-    };
-
-    // Connect to MongoDB
-    const conn = await mongoose.connect(mongoURI, options);
-
-    console.log(
-      `✅ MongoDB Connected: ${conn.connection.host}:${conn.connection.port}/${conn.connection.name}`
-    );
-
-    // Log connection state
-    console.log(
-      `📊 Connection State: ${getConnectionState(conn.connection.readyState)}`
-    );
-
-    // Handle connection events
-    setupConnectionEvents();
-
+    const conn = await mongoose.connect(mongoURI);
+    console.log(`✅ MongoDB Connected: ${conn.connection.host}`);
     return conn;
   } catch (error) {
     console.error("❌ MongoDB Connection Error:", error.message);
-
-    // Exit process with failure if in production
-    if (process.env.NODE_ENV === "production") {
-      process.exit(1);
-    }
-
     throw error;
   }
 };
