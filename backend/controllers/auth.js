@@ -4,6 +4,8 @@ const Facility = require("../models/Facility");
 const jwt = require("jsonwebtoken");
 const crypto = require("crypto");
 
+const { generateRandomString, generateHash } = require("../utils/helpers");
+
 // Generate JWT token
 const generateToken = (id) => {
   return jwt.sign({ id }, process.env.JWT_SECRET, {
@@ -59,6 +61,158 @@ const sendTokenResponse = (user, statusCode, res, message = "Success") => {
         },
       },
     });
+};
+
+// @desc    Send OTP for password reset
+// @route   POST /api/auth/send-otp
+// @access  Public
+const sendOTP = async (req, res) => {
+  try {
+    const { email } = req.body;
+
+    const user = await User.findOne({ email });
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "No user found with that email",
+      });
+    }
+
+    // Generate 4-digit OTP
+    const otp = Math.floor(1000 + Math.random() * 9000).toString();
+
+    user.passwordResetOTP = otp;
+    user.passwordResetOTPExpires = Date.now() + 10 * 60 * 1000; // 10 minutes
+
+    await user.save({ validateBeforeSave: false });
+
+    // Send OTP via email (using nodemailer - free service)
+    await sendOTPEmail(user.email, otp);
+
+    res.status(200).json({
+      success: true,
+      message: "OTP sent successfully",
+    });
+  } catch (error) {
+    console.error("Send OTP error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to send OTP",
+    });
+  }
+};
+
+// @desc    Verify OTP
+// @route   POST /api/auth/verify-otp
+// @access  Public
+const verifyOTP = async (req, res) => {
+  try {
+    const { email, otp } = req.body;
+
+    const user = await User.findOne({
+      email,
+      passwordResetOTP: otp,
+      passwordResetOTPExpires: { $gt: Date.now() },
+    });
+
+    if (!user) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid or expired OTP",
+      });
+    }
+
+    // Generate temporary token for password reset
+    const resetToken = generateRandomString();
+    user.passwordResetToken = generateHash(resetToken);
+    user.passwordResetExpires = Date.now() + 15 * 60 * 1000; // 15 minutes
+    user.passwordResetOTP = undefined;
+    user.passwordResetOTPExpires = undefined;
+
+    await user.save({ validateBeforeSave: false });
+
+    res.status(200).json({
+      success: true,
+      message: "OTP verified successfully",
+      resetToken,
+    });
+  } catch (error) {
+    console.error("Verify OTP error:", error);
+    res.status(500).json({
+      success: false,
+      message: "OTP verification failed",
+    });
+  }
+};
+
+// @desc    Reset password with token
+// @route   PUT /api/auth/reset-password
+// @access  Public
+const resetPasswordWithToken = async (req, res) => {
+  try {
+    const { resetToken, password } = req.body;
+
+    const resetPasswordToken = generateHash(resetToken);
+
+    const user = await User.findOne({
+      passwordResetToken: resetPasswordToken,
+      passwordResetExpires: { $gt: Date.now() },
+    });
+
+    if (!user) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid or expired reset token",
+      });
+    }
+
+    user.password = password;
+    user.passwordResetToken = undefined;
+    user.passwordResetExpires = undefined;
+    user.passwordResetOTP = undefined;
+    user.passwordResetOTPExpires = undefined;
+
+    await user.save();
+
+    res.status(200).json({
+      success: true,
+      message: "Password reset successful",
+    });
+  } catch (error) {
+    console.error("Reset password error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Password reset failed",
+    });
+  }
+};
+
+// Helper function to send OTP email
+const sendOTPEmail = async (email, otp) => {
+  const nodemailer = require("nodemailer");
+
+  const transporter = nodemailer.createTransporter({
+    service: "gmail",
+    auth: {
+      user: process.env.EMAIL_USER,
+      pass: process.env.EMAIL_PASS,
+    },
+  });
+
+  const mailOptions = {
+    from: process.env.EMAIL_USER,
+    to: email,
+    subject: "MessMeter - Password Reset OTP",
+    html: `
+      <h2>Password Reset OTP</h2>
+      <p>Your OTP for password reset is: <strong>${otp}</strong></p>
+      <p>This OTP will expire in 10 minutes.</p>
+      <p>If you didn't request this, please ignore this email.</p>
+    `,
+  };
+
+  await transporter.sendMail(mailOptions);
 };
 
 // @desc    Register user
@@ -639,4 +793,7 @@ module.exports = {
   forgotPassword,
   resetPassword,
   verifyEmail,
+  sendOTP,
+  verifyOTP,
+  resetPasswordWithToken,
 };
