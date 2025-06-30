@@ -164,6 +164,66 @@ const submitRating = async (req, res) => {
   }
 };
 
+// @desc    Get recent feedback for the facility
+// @route   GET /api/ratings/recent
+// @access  Private (Authenticated users with facility access)
+const getRecentFeedback = async (req, res) => {
+  try {
+    const facilityId =
+      req.user.adminFacility?.facilityId || req.user.selectedFacility?.facilityId;
+    const messType =
+      req.user.adminFacility?.facilityType === "college"
+        ? "college_mess"
+        : "hostel_mess";
+    const { page = 1, limit = 10, sortBy = "newest" } = req.query;
+
+    let sortOption = { createdAt: -1 };
+    if (sortBy === "helpful") {
+      sortOption = { "helpfulVotes.upvotes": -1, createdAt: -1 };
+    } else if (sortBy === "rating_high") {
+      sortOption = { overallRating: -1, createdAt: -1 };
+    } else if (sortBy === "rating_low") {
+      sortOption = { overallRating: 1, createdAt: -1 };
+    }
+
+    const ratings = await Rating.find({
+      facilityId,
+      messType,
+      isActive: true,
+    })
+      .sort(sortOption)
+      .limit(limit * 1)
+      .skip((page - 1) * limit)
+      .populate("student", "name profilePhoto");
+
+    const total = await Rating.countDocuments({
+      facilityId,
+      messType,
+      isActive: true,
+    });
+
+    res.status(200).json({
+      success: true,
+      count: ratings.length,
+      pagination: {
+        page: parseInt(page),
+        limit: parseInt(limit),
+        total,
+        pages: Math.ceil(total / limit),
+      },
+      data: ratings,
+    });
+  } catch (error) {
+    console.error("Get recent feedback error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Could not fetch recent feedback",
+    });
+  }
+};
+
+
+
 // @desc    Get ratings for a menu item
 // @route   GET /api/ratings/item/:menuItemId
 // @access  Public (with optional auth)
@@ -208,7 +268,7 @@ const getMenuItemRatings = async (req, res) => {
     const ratingSummary = await Rating.aggregate([
       {
         $match: {
-          menuItem: mongoose.Types.ObjectId(menuItemId),
+          menuItem: new mongoose.Types.ObjectId(menuItemId),
           isActive: true,
           ...(options.mealDate && { mealDate: options.mealDate }),
           ...(options.facilityId && { facilityId: options.facilityId }),
@@ -289,7 +349,7 @@ const getMyRatingHistory = async (req, res) => {
     const userStats = await Rating.aggregate([
       {
         $match: {
-          student: mongoose.Types.ObjectId(studentId),
+          student: new mongoose.Types.ObjectId(studentId),
           isActive: true,
         },
       },
@@ -620,4 +680,5 @@ module.exports = {
   updateRating,
   deleteRating,
   getFacilityStats,
+  getRecentFeedback,
 };

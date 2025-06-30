@@ -8,8 +8,34 @@ const Rating = require("../models/Rating");
 // @access  Public (with optional auth)
 const getTodayMenu = async (req, res) => {
   try {
-    const { facilityId, messType, mealType } = req.query;
+    let { facilityId, messType, mealType } = req.query;
 
+    // If no query params provided but user is authenticated, use user's facility info
+    if ((!facilityId || !messType) && req.user) {
+      if (req.user.role === "mess_admin") {
+        facilityId =
+          facilityId ||
+          req.user.adminFacility?.facilityName ||
+          req.user.adminFacility?.facilityId;
+        messType =
+          messType ||
+          (req.user.adminFacility?.facilityType === "hostel"
+            ? "hostel_mess"
+            : "college_mess");
+      } else if (req.user.role === "student") {
+        facilityId =
+          facilityId ||
+          req.user.selectedFacility?.facilityName ||
+          req.user.selectedFacility?.facilityId;
+        messType =
+          messType ||
+          (req.user.selectedFacility?.facilityType === "hostel"
+            ? "hostel_mess"
+            : "college_mess");
+      }
+    }
+
+    // Still no facilityId/messType? Return error
     if (!facilityId || !messType) {
       return res.status(400).json({
         success: false,
@@ -23,9 +49,10 @@ const getTodayMenu = async (req, res) => {
     const todayMenus = await DailyMenu.findTodayMenus(facilityId, messType);
 
     if (!todayMenus || todayMenus.length === 0) {
-      return res.status(404).json({
-        success: false,
+      return res.status(200).json({
+        success: true,
         message: "No menu found for today",
+        data: [],
       });
     }
 

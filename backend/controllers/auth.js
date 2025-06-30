@@ -21,9 +21,9 @@ const sendTokenResponse = (user, statusCode, res, message = "Success") => {
     expires: new Date(
       Date.now() + (process.env.JWT_COOKIE_EXPIRE || 7) * 24 * 60 * 60 * 1000
     ),
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "strict",
+    httpOnly: false,  // Changed from true to false
+    secure: false,    // Changed for localhost
+    sameSite: "lax",  // Changed from strict to lax
   };
 
   // Remove password from output
@@ -192,7 +192,7 @@ const resetPasswordWithToken = async (req, res) => {
 const sendOTPEmail = async (email, otp) => {
   const nodemailer = require("nodemailer");
 
-  const transporter = nodemailer.createTransporter({
+  const transporter = nodemailer.createTransport({
     service: "gmail",
     auth: {
       user: process.env.EMAIL_USER,
@@ -214,6 +214,37 @@ const sendOTPEmail = async (email, otp) => {
 
   await transporter.sendMail(mailOptions);
 };
+
+// Placeholder for sendVerificationEmail (was a TODO)
+const sendVerificationEmail = async (email, token) => {
+  // Implement email sending logic here, similar to sendOTPEmail
+  console.log(`Sending verification email to ${email} with token: ${token}`);
+  // Example:
+  // const nodemailer = require("nodemailer");
+  // const transporter = nodemailer.createTransport({ /* ... */ });
+  // await transporter.sendMail({
+  //   from: process.env.EMAIL_USER,
+  //   to: email,
+  //   subject: "MessMeter - Verify Your Email",
+  //   html: `<p>Please verify your email by clicking <a href="${process.env.FRONTEND_URL}/verify-email/${token}">this link</a>.</p>`,
+  // });
+};
+
+// Placeholder for sendPasswordResetEmail (was a TODO)
+const sendPasswordResetEmail = async (email, token) => {
+  // Implement password reset email sending logic here
+  console.log(`Sending password reset email to ${email} with token: ${token}`);
+  // Example:
+  // const nodemailer = require("nodemailer");
+  // const transporter = nodemailer.createTransport({ /* ... */ });
+  // await transporter.sendMail({
+  //   from: process.env.EMAIL_USER,
+  //   to: email,
+  //   subject: "MessMeter - Password Reset",
+  //   html: `<p>You are receiving this because you (or someone else) have requested the reset of a password. Please make a PUT request to: \n\n ${process.env.FRONTEND_URL}/reset-password/${token} with your new password.</p>`,
+  // });
+};
+
 
 // @desc    Register user
 // @route   POST /api/auth/register
@@ -425,8 +456,8 @@ const register = async (req, res) => {
     user.emailVerificationExpires = Date.now() + 24 * 60 * 60 * 1000; // 24 hours
     await user.save({ validateBeforeSave: false });
 
-    // TODO: Send verification email
-    // await sendVerificationEmail(user.email, verificationToken);
+    // Send verification email
+    await sendVerificationEmail(user.email, verificationToken); // Now calls placeholder
 
     sendTokenResponse(
       user,
@@ -532,6 +563,26 @@ const login = async (req, res) => {
 // @access  Private
 const logout = async (req, res) => {
   try {
+    // Send confirmation request to frontend
+    res.status(200).json({
+      success: true,
+      message: "Confirm logout",
+      requiresConfirmation: true,
+    });
+  } catch (error) {
+    console.error("Logout error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Logout failed",
+    });
+  }
+};
+
+// @desc    Confirm logout user
+// @route   POST /api/auth/confirm-logout
+// @access  Private
+const confirmLogout = async (req, res) => {
+  try {
     res.cookie("token", "none", {
       expires: new Date(Date.now() + 10 * 1000),
       httpOnly: true,
@@ -555,7 +606,7 @@ const logout = async (req, res) => {
 // @access  Private
 const getMe = async (req, res) => {
   try {
-    const user = await User.findById(req.user.id);
+    const user = await User.findById(req.user._id);
 
     res.status(200).json({
       success: true,
@@ -590,7 +641,7 @@ const updateDetails = async (req, res) => {
       if (req.body.hostelId) fieldsToUpdate.hostelId = req.body.hostelId;
     }
 
-    const user = await User.findByIdAndUpdate(req.user.id, fieldsToUpdate, {
+    const user = await User.findByIdAndUpdate(req.user._id, fieldsToUpdate, {
       new: true,
       runValidators: true,
     });
@@ -634,7 +685,7 @@ const updatePassword = async (req, res) => {
       });
     }
 
-    const user = await User.findById(req.user.id).select("+password");
+    const user = await User.findById(req.user._id).select("+password");
 
     // Check current password
     const isMatch = await user.comparePassword(currentPassword);
@@ -684,8 +735,8 @@ const forgotPassword = async (req, res) => {
 
     await user.save({ validateBeforeSave: false });
 
-    // TODO: Send reset email
-    // await sendPasswordResetEmail(user.email, resetToken);
+    // Send reset email
+    await sendPasswordResetEmail(user.email, resetToken); // Now calls placeholder
 
     res.status(200).json({
       success: true,
@@ -787,6 +838,7 @@ module.exports = {
   register,
   login,
   logout,
+  confirmLogout,
   getMe,
   updateDetails,
   updatePassword,

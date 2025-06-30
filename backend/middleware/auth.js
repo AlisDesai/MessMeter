@@ -1,3 +1,4 @@
+// backend/middleware/auth.js
 const jwt = require("jsonwebtoken");
 const User = require("../models/User");
 
@@ -11,10 +12,11 @@ const authenticate = async (req, res, next) => {
   ) {
     // Set token from Bearer token in header
     token = req.headers.authorization.split(" ")[1];
-  } else if (req.cookies.token) {
+  } else if (req.cookies && req.cookies.token) {
     // Set token from cookie
     token = req.cookies.token;
   }
+
 
   // Make sure token exists
   if (!token) {
@@ -36,6 +38,16 @@ const authenticate = async (req, res, next) => {
         success: false,
         message: "User not found",
       });
+    }
+
+    // Add facility information to req.user for easy access
+    // CORRECTED: Ensure facilityId always refers to the actual ID.
+    if (req.user.role === "mess_admin") {
+      req.user.facilityId = req.user.adminFacility?.facilityId; 
+      req.user.messType = req.user.adminFacility?.facilityType === "hostel" ? "hostel_mess" : "college_mess";
+    } else if (req.user.role === "student") {
+      req.user.facilityId = req.user.selectedFacility?.facilityId;
+      req.user.messType = req.user.selectedFacility?.facilityType === "hostel" ? "hostel_mess" : "college_mess";
     }
 
     next();
@@ -77,6 +89,16 @@ const optionalAuth = async (req, res, next) => {
     try {
       const decoded = jwt.verify(token, process.env.JWT_SECRET);
       req.user = await User.findById(decoded.id).select("-password");
+      
+      // Add facility information for optional auth too
+      // CORRECTED: Ensure facilityId always refers to the actual ID.
+      if (req.user && req.user.role === "mess_admin") {
+        req.user.facilityId = req.user.adminFacility?.facilityId;
+        req.user.messType = req.user.adminFacility?.facilityType === "hostel" ? "hostel_mess" : "college_mess";
+      } else if (req.user && req.user.role === "student") {
+        req.user.facilityId = req.user.selectedFacility?.facilityId;
+        req.user.messType = req.user.selectedFacility?.facilityType === "hostel" ? "hostel_mess" : "college_mess";
+      }
     } catch (error) {
       // Ignore errors for optional auth
     }
@@ -105,26 +127,36 @@ const checkStudentAccess = async (req, res, next) => {
 const checkFacilityAccess = async (req, res, next) => {
   try {
     // Check if user has facility assigned
-    if (
-      !req.user.adminFacility?.facilityId &&
-      !req.user.selectedFacility?.facilityId
-    ) {
-      return res.status(403).json({
+    const hasFacility = req.user.facilityId || 
+                         req.user.adminFacility?.facilityId || 
+                         req.user.adminFacility?.facilityName || // This line still allows facilityName for the initial check, but facilityId is used in the middleware itself.
+                         req.user.selectedFacility?.facilityId || 
+                         req.user.selectedFacility?.facilityName; // This line still allows facilityName for the initial check, but facilityId is used in the middleware itself.
+
+    if (!hasFacility) {
+      return res.status(400).json({
         success: false,
-        message: "No facility assigned to user",
+        message: "Facility ID and mess type are required",
       });
     }
 
-    // For mess admin, check if they have access to the facility
-    if (req.user.role === "mess_admin" && !req.user.adminMess?.messId) {
-      return res.status(403).json({
-        success: false,
-        message: "No mess type assigned to user",
-      });
+    // For mess admin, check if they have mess type
+    if (req.user.role === "mess_admin") {
+      const hasMessAccess = req.user.messType || 
+                            req.user.adminMess?.messId || 
+                            req.user.adminFacility?.facilityType;
+
+      if (!hasMessAccess) {
+        return res.status(400).json({
+          success: false,
+          message: "Facility ID and mess type are required",
+        });
+      }
     }
 
     next();
   } catch (error) {
+    console.error("Error in checkFacilityAccess:", error);
     return res.status(500).json({
       success: false,
       message: "Error checking facility access",
